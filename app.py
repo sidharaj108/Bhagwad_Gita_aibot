@@ -19,7 +19,6 @@ st.markdown("**Multi-language Support**: English • हिंदी • ગુ�
 @st.cache_data(show_spinner="Loading sacred verses...")
 def load_data():
     df = pd.read_excel("Bhagwad_Gita_contant.xlsx")
-    # Combine meanings for better search
     df['HinMeaningEngMeaning'] = df['HinMeaning'].fillna('') + " " + df['EngMeaning'].fillna('')
     df['search_text'] = df['HinMeaningEngMeaning'].str.lower().str.strip()
     return df
@@ -55,7 +54,7 @@ def gita_chatbot(query: str):
 
     query = query.strip()
 
-    # ------------------- Direct Verse Lookup -------------------
+    # Direct Verse Lookup
     verse_match = re.match(r'^(\d+)\.(\d+)$', query)
     if verse_match:
         ch = int(verse_match.group(1))
@@ -81,27 +80,22 @@ def gita_chatbot(query: str):
 {meaning}
 """
 
-    # ------------------- Semantic Search -------------------
+    # Semantic Search
     try:
         detected_lang = detect(query.lower())
     except:
         detected_lang = "en"
 
-    # Detect if user wants Gujarati output
     user_guj = any(w in query.lower() for w in ["gujarati", "gujrati", "guj", "ગુજરાતી"])
     output_lang = 'gu' if user_guj or detected_lang == 'gu' else 'en'
 
-    # Encode query
     query_emb = model.encode(query, convert_to_tensor=True)
-
-    # Get top matches (increased top_k and lowered threshold)
     hits = util.semantic_search(query_emb, corpus_embeddings, top_k=10)[0]
 
     results = []
     for hit in hits:
-        if hit['score'] < 0.28:   # Lowered threshold for better recall
+        if hit['score'] < 0.28:
             continue
-            
         row = df.iloc[hit['corpus_id']]
         word_mean, comm = clean_word_meaning(row.get('WordMeaning', ''))
         final_meaning = row.get('gujarati_meaning', row['HinMeaningEngMeaning']) if output_lang == 'gu' else row['HinMeaningEngMeaning']
@@ -128,21 +122,27 @@ def gita_chatbot(query: str):
     else:
         return f"""❌ Sorry, I couldn't find a strong match for **"{query}"**.
 
-**Tips to get better results:**
-- Try: **"What is Karma Yoga?"**
-- Try: **"Karm yog kya hai?"**
-- Try: **"Duty without attachment"**
-- Try verse numbers like **3.1**, **2.22**, **18.66**
-- Ask in Gujarati: **"કર્મયોગ શું છે?"**
+**Try these:**
+- "What is Karma Yoga?"
+- "Karm yog kya hai?"
+- "What is the meaning of duty?"
+- "3.1" or "18.66"
 """
+
+# ====================== STREAMLIT UI ======================
+# Initialize session state for query
+if "user_query" not in st.session_state:
+    st.session_state.user_query = ""
 
 query = st.text_input(
     "🙏 Ask any question about Bhagavad Gita",
-    placeholder="What is Karma Yoga?   or   What is the meaning of duty? in gujarati   or   18.66",
-    key="user_query"
+    value=st.session_state.user_query,
+    placeholder="What is Karma Yoga?   or   18.66   or   કર્મયોગ શું છે?",
+    key="query_input"
 )
 
-col1, col2 = st.columns([1, 1])
+col1, col2, col3 = st.columns([2, 1, 1])
+
 with col1:
     if st.button("Get Wisdom 🕉️", type="primary"):
         with st.spinner("Seeking divine wisdom from Shrimad Bhagavad Gita..."):
@@ -150,17 +150,18 @@ with col1:
             st.markdown(response)
 
 with col2:
-    if st.button("Clear"):
+    if st.button("Clear Input"):
         st.session_state.user_query = ""
         st.rerun()
 
+# ====================== SIDEBAR ======================
 st.sidebar.header("🔥 Quick Examples")
+
 examples = [
     "What is Karma Yoga?",
     "What is the meaning of duty?",
     "Explain Dharma",
     "Who is a true yogi?",
-    "What Krishna says about fear?",
     "1.4",
     "2.22",
     "18.66",
@@ -169,9 +170,9 @@ examples = [
 ]
 
 for ex in examples:
-    if st.sidebar.button(ex):
+    if st.sidebar.button(ex, key=f"btn_{ex}"):
         st.session_state.user_query = ex
         st.rerun()
 
 st.sidebar.markdown("---")
-st.sidebar.info("💡 Tip: You can ask in English, Hindi, or Gujarati. Direct verse numbers work best.")
+st.sidebar.info("💡 Tip: Ask in English, Hindi, or Gujarati. Direct verse numbers (like 3.1) work best.")
