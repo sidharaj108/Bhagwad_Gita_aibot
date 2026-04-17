@@ -4,35 +4,37 @@ import re
 from sentence_transformers import SentenceTransformer, util
 from langdetect import detect
 
-# Page Configuration
+# ====================== PAGE CONFIG ======================
 st.set_page_config(
-    page_title="🕉️ Bhagavad Gita AI",
+    page_title="🕉️ Bhagavad Gita AI Chatbot",
     page_icon="🕉️",
-    layout="centered"
+    layout="centered",
+    initial_sidebar_state="expanded"
 )
 
 st.title("🕉️ Bhagavad Gita AI Chatbot")
 st.markdown("**Multi-language Support**: English • हिंदी • ગુજરાતી")
 
-# Load Data
-@st.cache_data(show_spinner="Loading Bhagavad Gita verses...")
+# ====================== LOAD DATA ======================
+@st.cache_data(show_spinner="Loading sacred verses...")
 def load_data():
     df = pd.read_excel("Bhagwad_Gita_contant.xlsx")
+    # Combine meanings for better search
     df['HinMeaningEngMeaning'] = df['HinMeaning'].fillna('') + " " + df['EngMeaning'].fillna('')
     df['search_text'] = df['HinMeaningEngMeaning'].str.lower().str.strip()
     return df
 
 df = load_data()
 
-# Load Model
-@st.cache_resource(show_spinner="Loading AI model (first time may take 30-60 seconds)...")
+# ====================== LOAD MODEL ======================
+@st.cache_resource(show_spinner="Loading AI model... (first load takes 30-60 sec)")
 def load_model():
     return SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
 
 model = load_model()
 corpus_embeddings = model.encode(df['search_text'].tolist(), convert_to_tensor=True)
 
-# Helper Function
+# ====================== HELPER FUNCTIONS ======================
 def clean_word_meaning(text):
     if not isinstance(text, str):
         return "", ""
@@ -46,14 +48,14 @@ def clean_word_meaning(text):
     word_meaning = re.sub(r'\s+', ' ', word_meaning).strip()
     return word_meaning, commentary
 
-# Chatbot Function
+# ====================== MAIN CHATBOT FUNCTION ======================
 def gita_chatbot(query: str):
     if not query or query.strip() == "":
-        return "🙏 Please ask a question or enter verse like **1.4**"
+        return "🙏 Please ask a question or enter a verse like **1.4** or **18.66**."
 
     query = query.strip()
 
-    # Direct Verse Search
+    # ------------------- Direct Verse Lookup -------------------
     verse_match = re.match(r'^(\d+)\.(\d+)$', query)
     if verse_match:
         ch = int(verse_match.group(1))
@@ -79,28 +81,33 @@ def gita_chatbot(query: str):
 {meaning}
 """
 
-    # Semantic Search
+    # ------------------- Semantic Search -------------------
     try:
         detected_lang = detect(query.lower())
     except:
         detected_lang = "en"
 
+    # Detect if user wants Gujarati output
     user_guj = any(w in query.lower() for w in ["gujarati", "gujrati", "guj", "ગુજરાતી"])
     output_lang = 'gu' if user_guj or detected_lang == 'gu' else 'en'
 
+    # Encode query
     query_emb = model.encode(query, convert_to_tensor=True)
-    hits = util.semantic_search(query_emb, corpus_embeddings, top_k=5)[0]
+
+    # Get top matches (increased top_k and lowered threshold)
+    hits = util.semantic_search(query_emb, corpus_embeddings, top_k=10)[0]
 
     results = []
     for hit in hits:
-        if hit['score'] < 0.38:
+        if hit['score'] < 0.28:   # Lowered threshold for better recall
             continue
+            
         row = df.iloc[hit['corpus_id']]
         word_mean, comm = clean_word_meaning(row.get('WordMeaning', ''))
         final_meaning = row.get('gujarati_meaning', row['HinMeaningEngMeaning']) if output_lang == 'gu' else row['HinMeaningEngMeaning']
-        
+
         results.append(f"""
-**Chapter {row['Chapter']}, Verse {row['Verse']}**
+**Chapter {row['Chapter']}, Verse {row['Verse']}** (Relevance: {hit['score']:.2f})
 
 **श्लोक**  
 {row['Shloka']}
@@ -108,37 +115,63 @@ def gita_chatbot(query: str):
 **Word Meaning**  
 {word_mean}
 
+**Commentary**  
+{comm if comm else ""}
+
 **Meaning**  
 {final_meaning}
 ---
 """)
 
-    return "\n".join(results) if results else "❌ No relevant verse found. Try different words or enter verse like 2.22"
+    if results:
+        return "\n".join(results)
+    else:
+        return f"""❌ Sorry, I couldn't find a strong match for **"{query}"**.
 
-# UI
+**Tips to get better results:**
+- Try: **"What is Karma Yoga?"**
+- Try: **"Karm yog kya hai?"**
+- Try: **"Duty without attachment"**
+- Try verse numbers like **3.1**, **2.22**, **18.66**
+- Ask in Gujarati: **"કર્મયોગ શું છે?"**
+"""
+
 query = st.text_input(
-    "🙏 Ask anything or enter verse number",
-    placeholder="What is the meaning of duty? in gujarati    or    18.66"
+    "🙏 Ask any question about Bhagavad Gita",
+    placeholder="What is Karma Yoga?   or   What is the meaning of duty? in gujarati   or   18.66",
+    key="user_query"
 )
 
-if st.button("Get Wisdom 🕉️", type="primary"):
-    with st.spinner("Finding divine wisdom from Shrimad Bhagavad Gita..."):
-        response = gita_chatbot(query)
-        st.markdown(response)
+col1, col2 = st.columns([1, 1])
+with col1:
+    if st.button("Get Wisdom 🕉️", type="primary"):
+        with st.spinner("Seeking divine wisdom from Shrimad Bhagavad Gita..."):
+            response = gita_chatbot(query)
+            st.markdown(response)
 
-# Sidebar Examples
+with col2:
+    if st.button("Clear"):
+        st.session_state.user_query = ""
+        st.rerun()
+
 st.sidebar.header("🔥 Quick Examples")
 examples = [
     "What is Karma Yoga?",
+    "What is the meaning of duty?",
     "Explain Dharma",
-    "What is the meaning of duty? in gujarati",
+    "Who is a true yogi?",
+    "What Krishna says about fear?",
     "1.4",
     "2.22",
     "18.66",
-    "કર્તવ્યનો અર્થ શું છે?"
+    "કર્મયોગ શું છે?",
+    "कर्तव्य का क्या अर्थ है?"
 ]
 
 for ex in examples:
     if st.sidebar.button(ex):
-        st.session_state.query = ex   # This may not work perfectly, but it's fine
+        st.session_state.user_query = ex
         st.rerun()
+
+st.sidebar.markdown("---")
+st.sidebar.info("💡 Tip: You can ask in English, Hindi, or Gujarati. Direct verse numbers work best.")
